@@ -21,7 +21,7 @@ st.markdown("""
         direction: RTL;
     }
     </style>
-    """, unsafe_allow_name=True)
+    """, unsafe_allow_html=True) # لاحظ التغيير هنا من name إلى html
 
 # 2. وظيفة قراءة وتحويل البيانات
 def load_data(file):
