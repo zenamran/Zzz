@@ -15,7 +15,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_name=True)
 
-# بيانات افتراضية للبدء (يمكن استبدالها بملف Excel لاحقاً)
+# وظيفة تحويل الحالة إلى ألوان
+def color_status(val):
+    color = 'white'
+    if val == 'معتمد': color = '#d4edda' # أخضر فاتح
+    elif val == 'قيد المراجعة': color = '#fff3cd' # أصفر فاتح
+    elif val == 'غير معتمد': color = '#f8d7da' # أحمر فاتح
+    return f'background-color: {color}'
+
+# بيانات افتراضية للبدء
 if 'supplier_data' not in st.session_state:
     st.session_state.supplier_data = pd.DataFrame([
         {
@@ -40,30 +48,49 @@ if 'supplier_data' not in st.session_state:
 st.title("📂 قاعدة بيانات الموردين المركزية")
 st.subheader("تسهيل الوصول للبيانات وإدارة السجلات")
 
-# القائمة الجانبية لإضافة مورد جديد
+# القائمة الجانبية لإدارة البيانات
 with st.sidebar:
-    st.header("➕ إضافة مورد جديد")
-    with st.form("add_supplier_form"):
-        new_name = st.text_input("اسم الشركة/المورد")
-        new_cat = st.selectbox("الفئة", ["ميكانيك", "أدوات حماية PPE", "مواد استهلاكية", "خدمات عامة", "قطع غيار"])
-        new_contact = st.text_input("اسم الشخص المسؤول")
-        new_phone = st.text_input("رقم الهاتف")
-        new_expiry = st.date_input("تاريخ انتهاء السجل التجاري")
-        new_status = st.selectbox("الحالة", ["معتمد", "قيد المراجعة", "غير معتمد"])
-        
-        submit_button = st.form_submit_button("حفظ المورد")
-        
-        if submit_button:
-            new_row = {
-                "اسم المورد": new_name,
-                "الفئة": new_cat,
-                "الشخص المسؤول": new_contact,
-                "رقم الهاتف": new_phone,
-                "تاريخ انتهاء السجل": str(new_expiry),
-                "الحالة": new_status
-            }
-            st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, pd.DataFrame([new_row])], ignore_index=True)
-            st.success("تمت إضافة المورد بنجاح!")
+    st.header("⚙️ إدارة البيانات")
+    
+    # خيار 1: إضافة مورد يدوي
+    with st.expander("➕ إضافة مورد يدوي"):
+        with st.form("add_supplier_form"):
+            new_name = st.text_input("اسم الشركة/المورد")
+            new_cat = st.selectbox("الفئة", ["ميكانيك", "أدوات حماية PPE", "مواد استهلاكية", "خدمات عامة", "قطع غيار"])
+            new_contact = st.text_input("اسم الشخص المسؤول")
+            new_phone = st.text_input("رقم الهاتف")
+            new_expiry = st.date_input("تاريخ انتهاء السجل التجاري")
+            new_status = st.selectbox("الحالة", ["معتمد", "قيد المراجعة", "غير معتمد"])
+            
+            submit_button = st.form_submit_button("حفظ المورد")
+            
+            if submit_button:
+                new_row = {
+                    "اسم المورد": new_name,
+                    "الفئة": new_cat,
+                    "الشخص المسؤول": new_contact,
+                    "رقم الهاتف": new_phone,
+                    "تاريخ انتهاء السجل": str(new_expiry),
+                    "الحالة": new_status
+                }
+                st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, pd.DataFrame([new_row])], ignore_index=True)
+                st.success("تمت إضافة المورد بنجاح!")
+
+    # خيار 2: رفع ملف تحويل (Excel/CSV)
+    with st.expander("📤 رفع قائمة موردين"):
+        uploaded_file = st.file_uploader("اختر ملف Excel أو CSV", type=['csv', 'xlsx'])
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    import_df = pd.read_csv(uploaded_file)
+                else:
+                    import_df = pd.read_excel(uploaded_file)
+                
+                if st.button("دمج مع القائمة الحالية"):
+                    st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, import_df], ignore_index=True).drop_duplicates()
+                    st.success("تم تحويل ودمج البيانات بنجاح!")
+            except Exception as e:
+                st.error(f"خطأ في معالجة الملف: {e}")
 
 # الجزء الرئيسي: البحث والعرض
 col1, col2 = st.columns([2, 1])
@@ -74,16 +101,11 @@ with col1:
 # فلترة البيانات بناءً على البحث
 df = st.session_state.supplier_data
 if search_query:
-    df = df[df['اسم المورد'].str.contains(search_query) | df['الفئة'].str.contains(search_query)]
+    # تحويل البحث ليكون مرناً (Case-insensitive)
+    mask = df['اسم المورد'].str.contains(search_query, na=False) | df['الفئة'].str.contains(search_query, na=False)
+    df = df[mask]
 
-# عرض الجدول بتنسيق لوني بسيط
-def color_status(val):
-    color = 'white'
-    if val == 'معتمد': color = '#d4edda' # أخضر فاتح
-    elif val == 'قيد المراجعة': color = '#fff3cd' # أصفر فاتح
-    elif val == 'غير معتمد': color = '#f8d7da' # أحمر فاتح
-    return f'background-color: {color}'
-
+# عرض الجدول
 st.write(f"عدد الموردين المسجلين: {len(df)}")
 st.table(df.style.applymap(color_status, subset=['الحالة']))
 
@@ -95,5 +117,4 @@ st.download_button(
     mime='text/csv',
 )
 
-# ملاحظة إرشادية في الأسفل
-st.info("نصيحة: يمكنك استخدام خيار 'إضافة مورد' من القائمة الجانبية لتحديث القاعدة فورياً.")
+st.info("نصيحة: يمكنك الآن رفع ملفات Excel مباشرة من القائمة الجانبية لتحويل قائمة الموردين الخاصة بك إلى التطبيق.")
