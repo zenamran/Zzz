@@ -1,120 +1,85 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 
-# إعدادات الصفحة
-st.set_page_config(page_title="نظام إدارة الموردين", layout="wide")
+# 1. إعدادات الصفحة بتصميم احترافي
+st.set_page_config(
+    page_title="نظام إدارة الموردين",
+    page_icon="📦",
+    layout="wide"
+)
 
-# تخصيص المظهر باللغة العربية
+# إضافة تنسيقات CSS لتحسين المظهر العربي
 st.markdown("""
     <style>
-    .main { direction: rtl; text-align: right; }
-    .stButton>button { width: 100%; border-radius: 5px; background-color: #10B981; color: white; }
-    th { text-align: right !important; }
-    td { text-align: right !important; }
+    @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;700&display=swap');
+    html, body, [class*="css"]  {
+        font-family: 'Cairo', sans-serif;
+        direction: RTL;
+        text-align: right;
+    }
+    .stDataFrame {
+        direction: RTL;
+    }
     </style>
     """, unsafe_allow_name=True)
 
-# وظيفة تحويل الحالة إلى ألوان
-def color_status(val):
-    color = 'white'
-    if val == 'معتمد': color = '#d4edda' # أخضر فاتح
-    elif val == 'قيد المراجعة': color = '#fff3cd' # أصفر فاتح
-    elif val == 'غير معتمد': color = '#f8d7da' # أحمر فاتح
-    return f'background-color: {color}'
+# 2. وظيفة قراءة وتحويل البيانات
+def load_data(file):
+    try:
+        if file.name.endswith('.csv'):
+            df = pd.read_csv(file)
+        else:
+            df = pd.read_excel(file)
+        return df
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء قراءة الملف: {e}")
+        return None
 
-# بيانات افتراضية للبدء
-if 'supplier_data' not in st.session_state:
-    st.session_state.supplier_data = pd.DataFrame([
-        {
-            "اسم المورد": "شركة الأمل للمعدات",
-            "الفئة": "ميكانيك",
-            "الشخص المسؤول": "أحمد محمد",
-            "رقم الهاتف": "0550123456",
-            "تاريخ انتهاء السجل": "2024-12-31",
-            "الحالة": "معتمد"
-        },
-        {
-            "اسم المورد": "مؤسسة الدرع الواقي",
-            "الفئة": "أدوات حماية PPE",
-            "الشخص المسؤول": "ياسين كريم",
-            "رقم الهاتف": "0661987654",
-            "تاريخ انتهاء السجل": "2023-05-20",
-            "الحالة": "قيد المراجعة"
-        }
-    ])
+# 3. واجهة التطبيق
+st.title("🚀 نظام إدارة قاعدة بيانات الموردين")
+st.markdown("---")
 
-# العنوان الرئيسي
-st.title("📂 قاعدة بيانات الموردين المركزية")
-st.subheader("تسهيل الوصول للبيانات وإدارة السجلات")
+# منطقة رفع الملفات
+with st.container():
+    uploaded_file = st.file_uploader("قم برفع ملف الموردين (Excel أو CSV) لتحويله داخل التطبيق", type=['xlsx', 'csv'])
 
-# القائمة الجانبية لإدارة البيانات
-with st.sidebar:
-    st.header("⚙️ إدارة البيانات")
+if uploaded_file is not None:
+    data = load_data(uploaded_file)
     
-    # خيار 1: إضافة مورد يدوي
-    with st.expander("➕ إضافة مورد يدوي"):
-        with st.form("add_supplier_form"):
-            new_name = st.text_input("اسم الشركة/المورد")
-            new_cat = st.selectbox("الفئة", ["ميكانيك", "أدوات حماية PPE", "مواد استهلاكية", "خدمات عامة", "قطع غيار"])
-            new_contact = st.text_input("اسم الشخص المسؤول")
-            new_phone = st.text_input("رقم الهاتف")
-            new_expiry = st.date_input("تاريخ انتهاء السجل التجاري")
-            new_status = st.selectbox("الحالة", ["معتمد", "قيد المراجعة", "غير معتمد"])
-            
-            submit_button = st.form_submit_button("حفظ المورد")
-            
-            if submit_button:
-                new_row = {
-                    "اسم المورد": new_name,
-                    "الفئة": new_cat,
-                    "الشخص المسؤول": new_contact,
-                    "رقم الهاتف": new_phone,
-                    "تاريخ انتهاء السجل": str(new_expiry),
-                    "الحالة": new_status
-                }
-                st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, pd.DataFrame([new_row])], ignore_index=True)
-                st.success("تمت إضافة المورد بنجاح!")
+    if data is not None:
+        st.success("✅ تم تحميل وتحويل القائمة بنجاح!")
+        
+        # تقسيم الواجهة لثلاثة أعمدة للبحث والفلترة
+        col1, col2, col3 = st.columns([2, 1, 1])
+        
+        with col1:
+            search = st.text_input("🔍 ابحث في كافة البيانات (اسم، هاتف، منتج...):")
+        
+        # تنفيذ عملية البحث
+        if search:
+            mask = data.astype(str).apply(lambda x: x.str.contains(search, case=False, na=False)).any(axis=1)
+            display_df = data[mask]
+        else:
+            display_df = data
 
-    # خيار 2: رفع ملف تحويل (Excel/CSV)
-    with st.expander("📤 رفع قائمة موردين"):
-        uploaded_file = st.file_uploader("اختر ملف Excel أو CSV", type=['csv', 'xlsx'])
-        if uploaded_file is not None:
-            try:
-                if uploaded_file.name.endswith('.csv'):
-                    import_df = pd.read_csv(uploaded_file)
-                else:
-                    import_df = pd.read_excel(uploaded_file)
-                
-                if st.button("دمج مع القائمة الحالية"):
-                    st.session_state.supplier_data = pd.concat([st.session_state.supplier_data, import_df], ignore_index=True).drop_duplicates()
-                    st.success("تم تحويل ودمج البيانات بنجاح!")
-            except Exception as e:
-                st.error(f"خطأ في معالجة الملف: {e}")
+        # عرض النتائج في جدول تفاعلي
+        st.markdown(f"### إجمالي الموردين المتاحين: `{len(display_df)}`")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-# الجزء الرئيسي: البحث والعرض
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    search_query = st.text_input("🔍 ابحث عن مورد (بالاسم أو الفئة):")
-
-# فلترة البيانات بناءً على البحث
-df = st.session_state.supplier_data
-if search_query:
-    # تحويل البحث ليكون مرناً (Case-insensitive)
-    mask = df['اسم المورد'].str.contains(search_query, na=False) | df['الفئة'].str.contains(search_query, na=False)
-    df = df[mask]
-
-# عرض الجدول
-st.write(f"عدد الموردين المسجلين: {len(df)}")
-st.table(df.style.applymap(color_status, subset=['الحالة']))
-
-# ميزة تصدير البيانات
-st.download_button(
-    label="📥 تحميل قاعدة البيانات كـ Excel (CSV)",
-    data=df.to_csv(index=False).encode('utf-8-sig'),
-    file_name='suppliers_database.csv',
-    mime='text/csv',
-)
-
-st.info("نصيحة: يمكنك الآن رفع ملفات Excel مباشرة من القائمة الجانبية لتحويل قائمة الموردين الخاصة بك إلى التطبيق.")
+        # خيارات التصدير
+        st.markdown("---")
+        st.download_button(
+            label="📥 تحميل القائمة الحالية (CSV)",
+            data=display_df.to_csv(index=False).encode('utf-8-sig'),
+            file_name='suppliers_export.csv',
+            mime='text/csv',
+        )
+else:
+    # رسالة ترحيبية وتعليمات عند عدم وجود ملف
+    st.info("💡 للبدء، يرجى سحب وإفلات ملف الموردين الخاص بك هنا.")
+    with st.expander("ℹ️ تعليمات الاستخدام"):
+        st.write("""
+        1. تأكد من أن ملف Excel يحتوي على رؤوس أعمدة واضحة.
+        2. يمكنك البحث عن أي مورد بمجرد كتابة جزء من اسمه في خانة البحث.
+        3. التطبيق يعمل كلياً في المتصفح ولا يتم حفظ ملفاتك على خوادم خارجية لضمان الخصوصية.
+        """)
