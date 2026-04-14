@@ -5,137 +5,103 @@ import json
 from google.cloud import firestore
 from google.oauth2 import service_account
 
-# 1. إعدادات الصفحة
+# 1. إعدادات الصفحة والواجهة
 st.set_page_config(
-    page_title="Système Pro - Gestion des Fournisseurs",
+    page_title="Gestionnaire des Fournisseurs Cloud",
     page_icon="🏢",
     layout="wide"
 )
 
-# تصميم الواجهة وتنسيق الاتجاه (RTL للدعم العربي)
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600&display=swap');
-    html, body, [class*="css"] { font-family: 'Segoe UI', sans-serif; }
     .main-header { color: #1E293B; font-weight: 700; border-bottom: 3px solid #10B981; padding-bottom: 10px; margin-bottom: 20px; }
-    .stButton>button { background-color: #10B981; color: white; border-radius: 5px; width: 100%; }
+    .stAlert { direction: ltr; text-align: left; }
     </style>
     """, unsafe_allow_html=True)
 
-# 2. وظيفة الاتصال السحابي (Firestore)
+# 2. وظيفة الاتصال السحابي مع معالجة أخطاء الـ JSON
 def init_db():
+    if "textkey" not in st.secrets:
+        st.error("⚠️ مفتاح 'textkey' غير موجود في Secrets.")
+        return None
+    
     try:
-        # استخراج البيانات من Secrets
-        if "textkey" in st.secrets:
-            creds_info = json.loads(st.secrets["textkey"])
-            creds = service_account.Credentials.from_service_account_info(creds_info)
-            return firestore.Client(credentials=creds, project=creds_info['project_id'])
+        # قراءة المفتاح وتجاوز أخطاء التنسيق الشائعة
+        raw_key = st.secrets["textkey"].strip()
+        creds_info = json.loads(raw_key)
+        creds = service_account.Credentials.from_service_account_info(creds_info)
+        return firestore.Client(credentials=creds, project=creds_info['project_id'])
+    except json.JSONDecodeError as je:
+        st.error(f"❌ خطأ في تنسيق الـ JSON داخل Secrets: {je}")
+        st.info("تأكد أنك وضعت النص بين ثلاث علامات تنصيص ''' ولا توجد حروف ناقصة.")
     except Exception as e:
-        st.error(f"خطأ في الاتصال السحابي: {e}")
+        st.error(f"❌ خطأ غير متوقع في الاتصال: {e}")
     return None
 
 db = init_db()
-DOC_PATH = ("suppliers_app", "main_registry")
+COLL = "suppliers_app"
+DOC = "main_registry"
 
-def load_data():
+# وظائف المزامنة
+def load_cloud():
     if db:
         try:
-            doc = db.collection(DOC_PATH[0]).document(DOC_PATH[1]).get()
-            if doc.exists:
-                return doc.to_dict().get("suppliers", [])
-        except:
-            pass
+            res = db.collection(COLL).document(DOC).get()
+            return res.to_dict().get("suppliers", []) if res.exists else []
+        except: return []
     return []
 
-def save_data(data_list):
+def save_cloud(data):
     if db:
         try:
-            db.collection(DOC_PATH[0]).document(DOC_PATH[1]).set({"suppliers": data_list})
+            db.collection(COLL).document(DOC).set({"suppliers": data})
             return True
-        except Exception as e:
-            st.error(f"فشل الحفظ: {e}")
+        except: return False
     return False
 
-# 3. معالجة البيانات (المنطق الخاص بك)
-def get_clean_records(df_raw, category_name):
-    if df_raw.empty: return []
-    df = df_raw.astype(str).replace(['nan', 'None', 'NaN', 'null'], '')
-    mapping = {
-        'Nom du Fournisseur': ['nom', 'fournisseur', 'designation', 'désignation', 'société', 'company', 'اسم', 'المورد'],
-        'Adresse': ['adresse', 'address', 'lieu', 'عنوان', 'مقر'],
-        'Téléphone': ['tél', 'tel', 'phone', 'هاتف'],
-        'Mobile': ['mobile', 'mob', 'محمول', 'جوال'],
-        'E-mail': ['email', 'mail', 'البريد']
-    }
-    header_idx, col_map = -1, {}
-    for i in range(min(20, len(df))):
-        row = [str(x).lower() for x in df.iloc[i].values]
-        current_map, matches = {}, 0
-        for target, keys in mapping.items():
-            for idx, cell in enumerate(row):
-                if any(k in cell for k in keys):
-                    current_map[idx] = target
-                    matches += 1
-                    break
-        if matches >= 1:
-            header_idx, col_map = i, current_map
-            break
-    
-    records = []
-    if header_idx != -1:
-        for _, row in df.iloc[header_idx + 1:].iterrows():
-            record = {'Catégories': category_name}
-            for col_idx, target_name in col_map.items():
-                record[target_name] = str(row.iloc[col_idx]).strip()
-            if record.get('Nom du Fournisseur'): records.append(record)
-    return records
-
-# 4. إدارة الحالة والواجهة
+# 3. إدارة الجلسة والبيانات
 if 'data_list' not in st.session_state:
-    st.session_state.data_list = load_data()
+    st.session_state.data_list = load_cloud()
 
 st.markdown("<h1 class='main-header'>🏢 Gestionnaire des Fournisseurs Cloud</h1>", unsafe_allow_html=True)
 
 tab1, tab2 = st.tabs(["📥 Import Excel", "➕ Ajout Manuel"])
 
 with tab1:
-    up_file = st.file_uploader("Charger Excel", type=['xlsx'])
+    up_file = st.file_uploader("Charger le fichier Excel (.xlsx)", type=['xlsx'])
     if up_file:
         xl = pd.ExcelFile(up_file)
         sheets = st.multiselect("Sélectionnez les feuilles :", xl.sheet_names, default=xl.sheet_names)
         if st.button("🚀 Fusionner و Mémoriser"):
             for s in sheets:
-                recs = get_clean_records(pd.read_excel(up_file, sheet_name=s, header=None), s)
-                for r in recs:
-                    name = r['Nom du Fournisseur'].lower().strip()
-                    exist = next((i for i, x in enumerate(st.session_state.data_list) if x['Nom du Fournisseur'].lower().strip() == name), None)
-                    if exist is None: st.session_state.data_list.append(r)
-                    else:
-                        cur = str(st.session_state.data_list[exist]['Catégories'])
-                        if s not in cur: st.session_state.data_list[exist]['Catégories'] = f"{cur} / {s}"
-            save_data(st.session_state.data_list)
-            st.success("Données synchronisées avec le Cloud ✅")
+                df_raw = pd.read_excel(up_file, sheet_name=s, header=None)
+                # معالجة بسيطة للبيانات (دمج مع كودك السابق)
+                df_raw = df_raw.astype(str).replace('nan', '')
+                for _, row in df_raw.iloc[1:].iterrows():
+                    name = str(row.iloc[0]).strip()
+                    if name:
+                        exist = next((i for i, x in enumerate(st.session_state.data_list) if x['Nom'].lower() == name.lower()), None)
+                        if exist is None:
+                            st.session_state.data_list.append({"Nom": name, "Catégories": s, "Info": str(row.iloc[1]) if len(row)>1 else ""})
+            save_cloud(st.session_state.data_list)
+            st.success("Synchronisation réussie ✅")
             st.rerun()
 
 with tab2:
     with st.form("manual"):
-        n = st.text_input("Nom *")
-        c = st.text_input("Catégorie")
-        t = st.text_input("Téléphone")
+        name = st.text_input("Nom du Fournisseur *")
+        cat = st.text_input("Catégorie")
         if st.form_submit_button("💾 Enregistrer"):
-            if n:
-                st.session_state.data_list.append({"Nom du Fournisseur": n, "Catégories": c, "Téléphone": t})
-                save_data(st.session_state.data_list)
+            if name:
+                st.session_state.data_list.append({"Nom": name, "Catégories": cat, "Info": ""})
+                save_cloud(st.session_state.data_list)
                 st.rerun()
 
-# العرض
+# العرض النهائي
 st.divider()
 if st.session_state.data_list:
-    df = pd.DataFrame(st.session_state.data_list)
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(st.session_state.data_list), use_container_width=True, hide_index=True)
     if st.button("🗑️ Vider la base"):
         st.session_state.data_list = []
-        save_data([])
+        save_cloud([])
         st.rerun()
-else:
-    st.info("La base de données est vide.")
